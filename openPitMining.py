@@ -1,11 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
-import StringIO
-from gurobipy import *
+import io
+import os
+import pulp
+from pulp import LpProblem, LpMaximize, LpVariable, LpBinary, lpSum, PULP_CBC_CMD, LpStatusOptimal
 
 # Model data
-cost = [];
+cost = []
 for i in range(18):
     if (i < 8):
       cost.append(100)
@@ -14,17 +16,24 @@ for i in range(18):
     else:
       cost.append(300)
 
-cost[8] = 1000; cost[13] = 1000; cost[14] = 1000;
-cost[15] = 1000; cost[17] = 1000;
+cost[8] = 1000
+cost[13] = 1000
+cost[14] = 1000
+cost[15] = 1000
+cost[17] = 1000
 
-value = [];
+value = []
 for i in range(18):
     value.append(0)
 
-value[0] = 200; value[6] = 300; value[9] = 500;
-value[11] = 200; value[16] = 1000; value[17] = 1200;
+value[0] = 200
+value[6] = 300
+value[9] = 500
+value[11] = 200
+value[16] = 1000 
+value[17] = 1200
 
-edges = [];
+edges = []
 
 for i in range(8,14):
     edges.append([i,i-8])
@@ -36,54 +45,59 @@ for i in range(14,18):
     edges.append([i,i-5])
     edges.append([i,i-4])
 
-def mycallback(model, where):
-    if where == GRB.callback.MESSAGE:
-        print >>model.__output, model.cbGet(GRB.callback.MSG_STRING),
 
 # Optimization
-def optimize(cost, value, edges, output=False):
+def optimize(cost, value_vec, edges, output=False):
 
-    m = Model()
+    # Define problem
+    prob = LpProblem("openPitMining", LpMaximize)
 
-    n = len(cost) # number of blocks
+    n = len(cost)  # number of blocks
 
-    # Indicator variable for each block
-    xb = {}
-    for i in range(n):
-        xb[i] = m.addVar(vtype=GRB.BINARY, name="x%d" % i)
+    # Indicator variable for each block (binary)
+    xb = [LpVariable(f"x{i}", cat=LpBinary) for i in range(n)]
 
-    m.update()
+    # Objective
+    prob += lpSum((value_vec[i] - cost[i]) * xb[i] for i in range(n))
 
-    # Set objective
-    m.setObjective(quicksum((value[i] - cost[i])*xb[i] for i in range(n)), GRB.MAXIMIZE)
+    # Precedence constraints
+    for u, v in edges:
+        prob += xb[u] <= xb[v]
 
-    # Add constraints
-    for edge in edges:
-        u = edge[0]
-        v = edge[1]
-        m.addConstr(xb[u] <= xb[v])
+    # Configure solver (CBC by default in PuLP)
+    log_str = ""
+    if output:
+        log_path = os.path.join(os.path.dirname(__file__), "cbc.log")
+        # When using logPath, keep msg False to avoid warning and duplicate output
+        solver = PULP_CBC_CMD(msg=False, timeLimit=10, logPath=log_path)
+    else:
+        solver = PULP_CBC_CMD(msg=False, timeLimit=10)
 
-    if not output:
-        m.params.OutputFlag = 0
+    prob.solve(solver)
 
-    m.setParam('TimeLimit', 10)
+    # Collect log output if requested
+    if output:
+        log_path = os.path.join(os.path.dirname(__file__), "cbc.log")
+        try:
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                    log_str = f.read()
+                try:
+                    os.remove(log_path)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-    output = StringIO.StringIO()
-    m.__output = output
-
-    m.optimize(mycallback)
-
-    if (m.status != 2):
+    # Check optimality (mimic prior behavior of requiring optimal solution)
+    if prob.status != LpStatusOptimal:
         return ["error"]
 
-    solution = [];
+    # Build solution vector in variable index order
+    solution = [var.value() for var in xb]
+    solution.append(pulp.value(prob.objective))
 
-    for v in m.getVars():
-        solution.append(v.x)
-
-    solution.append(m.objVal)
-
-    return [solution, output.getvalue()]
+    return [solution, log_str]
 
 def handleoptimize(jsdict):
     if 'cost' in jsdict and 'value' in jsdict and 'edges' in jsdict:
@@ -95,5 +109,5 @@ if __name__ == '__main__':
     import json
     jsdict = json.load(sys.stdin)
     jsdict = handleoptimize(jsdict)
-    print 'Content-Type: application/json\n\n'
-    print json.dumps(jsdict)
+    print('Content-Type: application/json\n\n')
+    print(json.dumps(jsdict))

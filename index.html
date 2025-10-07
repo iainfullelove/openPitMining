@@ -1,15 +1,14 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
-<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
-</script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/mathjax@2/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
 <script>
-  MathJax.Hub.Config({
-                      tex2jax: {inlineMath: [['$', '$'], ['\\(','\\)']]},
-                      TeX: { equationNumbers: {autoNumber: "AMS"} },
-                      "HTML-CSS": { showMathMenu: false,
-                                    scale: 90 }
-
-                     });
+  if (window.MathJax && MathJax.Hub) {
+    MathJax.Hub.Config({
+      tex2jax: {inlineMath: [['$', '$'], ['\\(','\\)']]},
+      TeX: { equationNumbers: {autoNumber: "AMS"} },
+      "HTML-CSS": { showMathMenu: false, scale: 90 }
+    });
+  }
 </script>
 <link rel="stylesheet" href="http://examples.gurobi.com/base.css">
 <style>
@@ -683,6 +682,18 @@ function redraw(type) {
 
 // Compute
 function compute() {
+  // Ensure arrays exist to avoid runtime errors if earlier init failed
+  if (typeof value === 'undefined' || !Array.isArray(value)) {
+    value = [];
+    for (var i = 0; i < numBlocks; i++) value.push(0);
+  }
+  if (typeof cost === 'undefined' || !Array.isArray(cost)) {
+    cost = [];
+    for (var i = 0; i < numBlocks; i++) cost.push(100);
+  }
+  if (typeof edges === 'undefined' || !Array.isArray(edges)) {
+    edges = [];
+  }
   blocksG.selectAll("rect").attr("class", function(d) {
                                       var tempType = d3.select(this).attr("class");
                                       if (tempType === "typea") {
@@ -707,11 +718,15 @@ function compute() {
   console.log('value',value);
   console.log('edges',edges);
 
-  d3.json('openPitMining.py')
-    .header('Content-Type', 'application/json')
-    .post(JSON.stringify({'cost': cost,
-                          'value': value,
-                          'edges': edges }), serverResponse);
+  // Use fetch for a robust JSON POST instead of d3.json chaining
+  fetch('openPitMining.py', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cost: cost, value: value, edges: edges })
+  })
+  .then(function(resp) { return resp.json(); })
+  .then(function(data) { serverResponse(null, data); })
+  .catch(function(err) { serverResponse(err, null); });
 }
 
 function serverResponse(error, data) {
