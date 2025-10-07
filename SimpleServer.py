@@ -2,7 +2,6 @@
 import os
 import sys
 import logging
-import cgi
 import json
 import socketserver
 from http.server import SimpleHTTPRequestHandler
@@ -19,6 +18,19 @@ else:
 import openPitMining
 
 
+def parse_content_type(header_value):
+    if not header_value:
+        return '', {}
+    parts = [part.strip() for part in header_value.split(';')]
+    ctype = parts[0].lower()
+    params = {}
+    for param in parts[1:]:
+        if '=' in param:
+            key, value = param.split('=', 1)
+            params[key.strip().lower()] = value.strip().strip('"')
+    return ctype, params
+
+
 class ServerHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
@@ -27,7 +39,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == '/openPitMining.py':
-            ctype, pdict = cgi.parse_header(self.headers.get('content-type', ''))
+            ctype, _ = parse_content_type(self.headers.get('content-type', ''))
             length = int(self.headers.get('content-length', 0))
             raw_body = self.rfile.read(length)
 
@@ -69,4 +81,5 @@ httpd = socketserver.TCPServer(("", PORT), Handler)
 
 print("Starting simple server")
 print("serving at port", PORT)
+print(f"Local URL: http://127.0.0.1:{PORT}/")
 httpd.serve_forever()
